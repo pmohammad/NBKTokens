@@ -1,0 +1,381 @@
+<?php
+defined('BASEPATH') OR exit('No direct script access allowed');
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+class Users extends CI_Controller {
+    
+    public $front="";
+    public $back="";
+#Constructor
+    public function __construct() {
+        parent::__construct();
+        date_default_timezone_set('Asia/Kuwait');
+        $this->load->model('Usermodel');
+    }
+    public function index(){
+        $this->load->view('Usermodule/login');
+        
+    }
+
+#Function to call register page
+	public function register(){
+	    $data['nationality'] = $this->Usermodel->get_nationality();
+	    $data['language'] = $this->Usermodel->get_language();
+	    $data['interest'] = $this->Usermodel->get_interest();
+		$this->load->view('Usermodule/register', $data);
+	}
+
+#Function to call forgot password page
+	public function forgot_password(){
+	    $this->load->view('Usermodule/forgot-password');
+	}
+
+#Function to call send email page
+	public function send_email(){
+	    $email =  $this->input->post('email');
+	    $verify = $this->Usermodel->verify_email($email);
+	    if($verify) {
+			$link = random_string('alnum', 10);
+			$updateuser = $this->Usermodel->update_user($email,$link);
+		    if($updateuser){
+		        $line = "\r\n\n";
+		        $message = 'Please click on below Link to reset your password.' .$line. 'adzjar.com/Users/change_password/'.$link;
+		        $email_confirmation = mail($email, 'Adzjar Change Password', $message);
+		        if($email_confirmation){
+    		        $this->session->set_flashdata('message', 'Email Sent...Please Check...');
+    		        return redirect('Users/index');
+		        }
+		    }
+		} else {
+		    $this->session->set_flashdata('error', 'Email Not Verified... Please check back');
+			return redirect('Users/forgot_password');
+		}
+	}
+	
+#Function to change password
+    public function change_password($link){
+        $data['user'] = $this->Usermodel->get_userdata($link);
+        if($data['user']==''){
+            $this->session->set_flashdata('error', 'User Not Found');
+            return redirect('Users/forgot_password');
+        }
+        else{
+            $this->load->view('Usermodule/change-password', $data);   
+        }
+    }
+	
+#Function to change password
+    public function update_password(){
+        $email =  $this->input->post('email');
+        $password =  sha1($this->input->post('password'));
+        $update = $this->Usermodel->update_password($email, $password);
+        if($update){
+            $this->session->set_flashdata('message', 'Password Updated');
+            return redirect('Users/index');
+        }
+        else{
+            $this->session->set_flashdata('error', 'Error in Updating Password');
+            return redirect('Users/index');
+        }
+    }
+
+	
+	
+#Function to check mobile number
+    public function check_mobile(){
+        $mobile = $_POST['mobile'];
+        $result = $this->Usermodel->check_mobile($mobile);
+        echo json_encode($result);
+    }
+    
+#Function to check mobile number
+    public function check_email(){
+        $email = $_POST['email'];
+        $result = $this->Usermodel->check_email($email);
+        echo json_encode($result);
+    }
+    
+#Function to check mobile otp
+    public function check_otp(){
+        $otp = $_POST['otp'];
+        $mobile = $_POST['mobile'];
+        $res = $this->Usermodel->check_otp($mobile, $otp);
+        echo json_encode($res);
+    }
+
+#Function to check referral
+    public function check_referral(){
+        $referral = $_POST['referral'];
+        $result = $this->Usermodel->check_referral($referral);
+        echo json_encode($result);
+    }
+#Function to complete registration
+	public function registration(){
+	    $name = $this->input->post('name');
+	    $mobile = $this->input->post('mobile');
+	    $email = $this->input->post('email');
+        $nationality = $this->input->post('nationality');
+        $referral = $this->input->post('referralid');
+        $language = $this->input->post('language');
+        $gender = $this->input->post('gender');
+        $dob = date_create($this->input->post('tdate'));
+        $interest = $this->input->post('interest');
+        $pass = sha1($this->input->post('password'));
+        $interest = implode(',', $interest);
+        $d = date_create(date('Y-m-d'));
+        $diff = date_diff($dob,$d);
+        $dob = $diff->format('%y');
+        $register = $this->Usermodel->registration($name,$mobile,$nationality,$referral,$pass,$email, $gender, $dob, $interest,$language);
+        $token=md5(uniqid());
+        $update_token = $this->Usermodel->update_token($register['01_id'], $token);
+		if($register) {
+		    $this->session->set_userdata('token', $token);
+			$this->session->set_userdata('is_user', true);
+			$this->session->set_userdata('mobile',$register['01_mobile']);
+			$this->session->set_userdata('uid',$register['01_id']);
+			$this->session->set_userdata('natid',$register['01_nationality']);
+			$this->session->set_userdata('intid',$register['01_interest']);
+			$this->session->set_userdata('lanid',$register['01_language']);
+			$this->session->set_userdata('genid',$register['01_gender']);
+			$this->session->set_userdata('ageid',$register['01_age']);
+			return redirect('Users/treasure/'. 0);
+		} else {
+			$this->session->set_flashdata('error', 'Error Occured!!');
+			return redirect('Users/register');
+		}
+	}
+
+#Function to call Treasure
+    public function treasure(){
+        $this->checkLogin();
+        $uid = $this->session->uid;
+        $page = 0;
+		$data['treasure'] = $this->Usermodel->fetch_thumbnails($page, $uid);
+		if(sizeof($data['treasure'])>0){
+    		$data['page'] = $page + 10;
+            $this->load->view('Usermodule/treasure', $data);
+		}else{
+		    $page = $page - 10;
+		    $data['treasure'] = $this->Usermodel->fetch_thumbnails($page, $uid);
+		    $data['page'] = $page ;
+            $this->load->view('Usermodule/treasure', $data);
+		}
+    }
+
+# Function to verify USers
+	function checkLogin() {
+	    $uid = $this->session->uid;
+	    $get_token = $this->Usermodel->get_token($uid);
+	    $token = $this->session->token;
+		if(!$this->session->is_user || $token!==$get_token) {
+			# Okay, you ain't clear to go, back to login now
+			return redirect('Users?error=Session expired, please login to continue.');
+		}
+	}
+
+#Function to call login
+    public function login(){
+        $mobile = $this->input->post('mobile');
+        $pass = sha1($this->input->post('password'));
+        $validate = $this->Usermodel->validate_login($mobile,$pass);
+        if($validate){
+            $token=md5(uniqid());
+            $update_token = $this->Usermodel->update_token($validate['01_id'], $token);
+            $this->session->set_userdata('token', $token);
+            $this->session->set_userdata('is_user', true);
+			$this->session->set_userdata('mobile',$validate['01_mobile']);
+			$this->session->set_userdata('uid',$validate['01_id']);
+			$this->session->set_userdata('natid',$register['01_nationality']);
+			$this->session->set_userdata('intid',$register['01_interest']);
+			$this->session->set_userdata('lanid',$register['01_language']);
+			$this->session->set_userdata('genid',$register['01_gender']);
+			$this->session->set_userdata('ageid',$register['01_age']);
+			return redirect('Users/treasure/'. 0);
+        }else{
+            $this->session->set_flashdata('error', 'Incorrect Details');
+			return redirect('Users/index');
+        }
+    }
+
+#Function to call dashboard
+    public function dashboard(){
+        $this->checkLogin();
+        $id = $this->session->uid;
+        $data['wallet'] = $this->Usermodel->fetch_wallet($id);
+        $data['banks'] = $this->Usermodel->fetch_banks();
+        $data['balance'] = $this->Usermodel->get_userbalance($id);
+        $this->load->view('Usermodule/dashboard', $data);
+    }
+
+#Function to call profile details
+    public function profile_details(){
+        $this->checkLogin();
+        $id = $this->session->uid;
+        $data['user'] = $this->Usermodel->fetch_profile_details($id);
+        $this->load->view('Usermodule/profile-details', $data);
+    }
+
+#Function to call Watch history
+    public function watch_history(){
+        $this->checkLogin();
+        $id = $this->session->uid;
+        $data['history'] = $this->Usermodel->watch_history($id);
+        $this->load->view('Usermodule/watch-history', $data);
+    }
+
+#Function to view Video
+    public function video($id, $id6){
+        $this->checkLogin();
+        $uid = $this->session->uid;
+        $update = $this->Usermodel->add_history($id,$uid,$id6);
+        if($update==="true"){
+            $data['vid'] = $this->Usermodel->fetch_video($id);
+            $this->load->view('Usermodule/video', $data);
+        }else if($update>0 && $update!=="false"){
+            return redirect('../Users/history/'.$update);
+        }else if($update==-1){
+            $this->session->set_flashdata('error', 'Campaign Paused.');
+            return redirect('../Users/treasure/');
+        }else{
+            return redirect('Users/treasure/');
+        }
+    }
+
+#Function to load history video
+    public function history($id){
+        $this->checkLogin();
+        $uid = $this->session->uid;
+        $data['vid'] = $this->Usermodel->fetch_history_video($id,$uid);
+        if(isset($data['vid'])){
+            $this->load->view('Usermodule/video', $data);
+        }else{
+            return redirect('../Users/treasure/'. 0);
+        }
+        
+    }
+
+#Function to update set_timeout
+    public function set_timeout(){
+        $this->checkLogin();
+        $time = $_POST['time'];
+        $uid = $this->session->uid;
+        $data = $this->Usermodel->set_timeout($uid, $time);
+        echo json_encode($data);
+    }
+
+#Function to add money
+    public function add_money(){
+        $this->checkLogin();
+        $time = $_POST['time'];
+        $uid = $this->session->uid;
+        $data = $this->Usermodel->add_money($uid, $time);
+        echo json_encode($data);
+    }
+
+#Function to update bank account
+    public function update_bankdetails(){
+        $this->checkLogin();
+		$this->load->helper(array('form', 'url'));
+		$this->load->library('form_validation');
+		$rules = array(
+			array(
+				'field' => 'civil_front',
+				'label' => 'Civil ID (Front)',
+				'rules' => 'callback_upload_civil_front'
+			),
+			array(
+				'field' => 'civil_back',
+				'label' => 'Civil Id (Back)',
+				'rules' => 'callback_upload_civil_back'
+			),
+		);
+		$this->form_validation->set_rules($rules);
+		if($this->form_validation->run() == FALSE) {
+		    return redirect('Users/dashboard', $data );
+		} else {
+			$this->bank_details();	
+		}
+    }
+#Function to validate image file
+	function upload_civil_front() {
+		$config['upload_path'] = './user-assets/images/customer-documents/';
+		$config['allowed_types'] = 'jpg|png|jpeg';
+		$config['remove_spaces'] = true;
+		$config['quality'] = '50%';
+	
+		$this->load->library('upload');
+        $this->upload->initialize($config);
+	
+		if($this->upload->do_upload('civil_front')) {
+		    $this->upload->data();
+		    $this->front = $this->upload->data('file_name');
+			return true;
+			
+		} else {
+			$this->session->set_flashdata('error', 'Image Civil Id Front Upload Failed, Please Try Again.');
+			return false;
+		}
+	}
+	
+# Function to validate image file
+	function upload_civil_back() {
+		$config['upload_path'] = './user-assets/images/customer-documents/';
+		$config['allowed_types'] = 'jpg|png|jpeg';
+		$config['remove_spaces'] = true;
+		$config['quality'] = '60%';
+		$this->load->library('upload');
+        $this->upload->initialize($config);
+		if($this->upload->do_upload('civil_back')) {
+		    $this->upload->data();
+			$this->back = $this->upload->data('file_name');
+			return true;
+		} else {
+			$this->session->set_flashdata('error', 'Image Civil Id Back Upload Failed, Please Try Again.');
+			return false;
+		}
+	}
+
+#Function to Add bank Details
+    public function bank_details(){
+        $id = $this->input->post('id');
+        $iban = $this->input->post('hash');
+        $acc_name = $this->input->post('acc_name');
+        $banks = $this->input->post('banks');
+		$civil_front = $this->front;
+		$civil_back = $this->back;
+		
+		$details = $this->Usermodel->bank_details($id,$civil_front,$civil_back,$iban,$acc_name,$banks);
+        if($details){
+            $this->session->set_flashdata('message', 'Bank details updated... Withdrawal is waiting for confirmation');
+		    return redirect('Users/dashboard');
+        }
+        else{
+            $this->session->set_flashdata('error', 'Error in withdrawals... Please try again after sometime');
+		    $this->load->view('Users/dashboard');
+        }
+    }
+
+#Function to request withdrawal
+    public function request_withdraw(){
+        $id = $this->input->post('id');
+        $pass = sha1($this->input->post('hash'));
+        $details = $this->Usermodel->request_withdraw($id,$pass);
+        if($details){
+            $this->session->set_flashdata('message', 'Success... Withdrawal is waiting for confirmation');
+		    return redirect('Users/dashboard');
+        }
+        else{
+            $this->session->set_flashdata('error', 'Error in withdrawals... Please try again after sometime');
+		    return redirect('Users/dashboard');
+        }
+    }
+
+# Logout users
+	public function logout() {
+	    $this->checkLogin();
+		$this->session->sess_destroy();
+		return redirect('../Users/index');
+	}
+}
